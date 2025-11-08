@@ -57,7 +57,7 @@ async def scan_for_trainers(duration=10):
                 reasons.append("trainer-like name")
         
         # Check for FTMS service
-        if device.metadata and 'uuids' in device.metadata:
+        if hasattr(device, 'metadata') and device.metadata and 'uuids' in device.metadata:
             uuids = device.metadata['uuids']
             if FTMS_SERVICE in uuids or '1826' in str(uuids):
                 is_trainer = True
@@ -73,7 +73,7 @@ async def scan_for_trainers(duration=10):
             print(f"   Address: {device.address}")
             print(f"   RSSI: {device.rssi} dBm")
             print(f"   Reasons: {', '.join(reasons)}")
-            if device.metadata and 'uuids' in device.metadata:
+            if hasattr(device, 'metadata') and device.metadata and 'uuids' in device.metadata:
                 print(f"   Services: {device.metadata['uuids']}")
         elif device.name:  # Show other named devices too
             print(f"\n   Name: {device.name}")
