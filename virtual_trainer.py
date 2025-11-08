@@ -66,8 +66,16 @@ class VirtualTrainer:
         # Simulation parameters
         self.base_power = 0  # Start at 0W
         self.base_cadence = 85
-        self.power_variation = 15
         self.cadence_variation = 5
+        
+        # Power variance levels (as percentage of power)
+        self.VARIANCE_LEVELS = {
+            'chill': 0.15,      # 15% variance
+            'focused': 0.05,    # 5% variance
+            'standard': 0.10     # 10% variance (default)
+        }
+        self.power_variance_level = 'standard'  # Default variance level
+        self.power_variance_percent = self.VARIANCE_LEVELS['standard']
         
         # ERG mode settings
         self.erg_mode_enabled = False
@@ -473,14 +481,22 @@ class VirtualTrainer:
             # In ERG mode, gradually approach target power
             power_diff = self.target_power - self.power
             self.power += power_diff * 0.1  # Gradual approach
-            self.power += random.uniform(-5, 5)  # Small variations
+            # Use percentage-based variance in ERG mode too
+            if self.target_power > 0:
+                variance_amount = self.target_power * self.power_variance_percent
+                self.power += random.uniform(-variance_amount, variance_amount)
             self.power = max(0, min(2000, self.power))
             
             # Cadence adjusts naturally with power in ERG mode
             self.cadence = self.base_cadence + random.uniform(-self.cadence_variation, self.cadence_variation)
         else:
             # Normal mode - natural variations
-            self.power = self.base_power + random.uniform(-self.power_variation, self.power_variation)
+            # Power variance is percentage-based
+            if self.base_power > 0:
+                variance_amount = self.base_power * self.power_variance_percent
+                self.power = self.base_power + random.uniform(-variance_amount, variance_amount)
+            else:
+                self.power = 0
             self.cadence = self.base_cadence + random.uniform(-self.cadence_variation, self.cadence_variation)
         
         # Ensure values stay in realistic ranges
@@ -508,8 +524,13 @@ class VirtualTrainer:
         else:
             logger.info(f"⚠️  Already running at {self.power}W. Use 'u' to update power.")
     
-    def update_power(self, new_power: int):
-        """Update power to a specific value"""
+    def update_power(self, new_power: int, variance_level: Optional[str] = None):
+        """Update power to a specific value, optionally set variance level
+        
+        Args:
+            new_power: Power in watts (0-2000)
+            variance_level: Optional variance level ('chill', 'focused', 'standard')
+        """
         if new_power < 0 or new_power > 2000:
             logger.warning(f"⚠️  Power must be between 0 and 2000W. Got {new_power}W")
             return
@@ -517,6 +538,17 @@ class VirtualTrainer:
         if new_power == 0:
             self.stop_power()
             return
+        
+        # Update variance level if provided
+        if variance_level:
+            variance_level_lower = variance_level.lower()
+            if variance_level_lower in self.VARIANCE_LEVELS:
+                self.power_variance_level = variance_level_lower
+                self.power_variance_percent = self.VARIANCE_LEVELS[variance_level_lower]
+                logger.info(f"📊 Variance level set to '{variance_level_lower}' ({self.power_variance_percent*100:.0f}%)")
+            else:
+                logger.warning(f"⚠️  Unknown variance level '{variance_level}'. Use 'chill', 'focused', or 'standard'")
+        
         # Clear stopped state and update power - this enables variations
         self.is_stopped = False
         self.power = new_power
@@ -524,7 +556,9 @@ class VirtualTrainer:
         # Restore cadence when power is set
         if self.cadence == 0:
             self.cadence = self.base_cadence
-        logger.info(f"⚡ Power updated to {new_power}W (variations enabled)")
+        
+        variance_info = f" (variance: {self.power_variance_level}, {self.power_variance_percent*100:.0f}%)"
+        logger.info(f"⚡ Power updated to {new_power}W{variance_info}")
     
     def stop_power(self):
         """Stop - go to zero power and cadence, no fluctuations"""
@@ -540,7 +574,8 @@ class VirtualTrainer:
         print("\n" + "=" * 60)
         print("⌨️  KEYBOARD CONTROLS:")
         print("  's' or 'start'  - Start trainer (enables, stays at 0W)")
-        print("  'u <watts>'      - Update power (e.g., 'u 200' sets to 200W)")
+        print("  'u <watts> [variance]' - Update power (e.g., 'u 200' or 'u 200 chill')")
+        print("                    Variance levels: 'chill' (15%), 'focused' (5%), 'standard' (10%)")
         print("  'stop'           - Stop trainer (→ 0W/0rpm, no variations)")
         print("  'q' or 'quit'    - Quit trainer")
         print("=" * 60 + "\n")
@@ -553,10 +588,14 @@ class VirtualTrainer:
                     self.start_power()
                 elif line.startswith('u '):
                     try:
-                        watts = int(line.split()[1])
-                        self.update_power(watts)
+                        parts = line.split()
+                        watts = int(parts[1])
+                        # Check if variance level is provided (3rd argument)
+                        variance_level = parts[2] if len(parts) > 2 else None
+                        self.update_power(watts, variance_level)
                     except (IndexError, ValueError):
-                        print("⚠️  Usage: 'u <watts>' (e.g., 'u 200')")
+                        print("⚠️  Usage: 'u <watts> [variance]' (e.g., 'u 200' or 'u 200 chill')")
+                        print("          Variance: 'chill' (15%), 'focused' (5%), 'standard' (10%)")
                 elif line == 'stop':
                     self.stop_power()
                 elif line in ['q', 'quit', 'exit']:
