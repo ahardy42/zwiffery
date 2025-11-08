@@ -55,9 +55,9 @@ class VirtualTrainer:
         self.server: Optional[BlessServer] = None
         
         # Trainer state
-        self.power = 0  # Start at 0W - use 's' command to start
-        self.cadence = 85  # RPM
-        self.speed = 25.0  # km/h
+        self.power = 0  # Start at 0W - use 'u' command to set power
+        self.cadence = 0  # Start at 0rpm - will be set when power is updated
+        self.speed = 0.0  # Start at 0 km/h
         self.heart_rate = 140  # BPM (optional)
         self.target_resistance = 0  # Target resistance level from Zwift (ERG mode)
         self.current_resistance = 0  # Current resistance level
@@ -497,13 +497,14 @@ class VirtualTrainer:
         self.speed = max(0, min(60, self.speed))
     
     def start_power(self):
-        """Start power - go from 0 to default start power"""
+        """Start trainer - clears stopped state but keeps power at 0 until updated"""
         if self.is_stopped:
             self.is_stopped = False
-            self.power = self.default_start_power
-            self.base_power = self.default_start_power
-            self.cadence = self.base_cadence
-            logger.info(f"🚀 Started: Power set to {self.default_start_power}W")
+            # Keep power and cadence at 0 - user must update power explicitly
+            self.power = 0
+            self.base_power = 0
+            self.cadence = 0
+            logger.info("🚀 Trainer started (power at 0W - use 'u <watts>' to set power)")
         else:
             logger.info(f"⚠️  Already running at {self.power}W. Use 'u' to update power.")
     
@@ -516,11 +517,14 @@ class VirtualTrainer:
         if new_power == 0:
             self.stop_power()
             return
-        # Ensure we're not stopped when updating to non-zero power
+        # Clear stopped state and update power - this enables variations
         self.is_stopped = False
         self.power = new_power
         self.base_power = new_power
-        logger.info(f"⚡ Power updated to {new_power}W")
+        # Restore cadence when power is set
+        if self.cadence == 0:
+            self.cadence = self.base_cadence
+        logger.info(f"⚡ Power updated to {new_power}W (variations enabled)")
     
     def stop_power(self):
         """Stop - go to zero power and cadence, no fluctuations"""
@@ -535,9 +539,9 @@ class VirtualTrainer:
         """Handle keyboard input in a separate thread"""
         print("\n" + "=" * 60)
         print("⌨️  KEYBOARD CONTROLS:")
-        print("  's' or 'start'  - Start power (0 → default)")
-        print("  'u <watts>'      - Update power (e.g., 'u 200')")
-        print("  'stop'           - Stop power (→ 0W)")
+        print("  's' or 'start'  - Start trainer (enables, stays at 0W)")
+        print("  'u <watts>'      - Update power (e.g., 'u 200' sets to 200W)")
+        print("  'stop'           - Stop trainer (→ 0W/0rpm, no variations)")
         print("  'q' or 'quit'    - Quit trainer")
         print("=" * 60 + "\n")
         
