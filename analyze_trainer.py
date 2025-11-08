@@ -71,14 +71,16 @@ async def scan_for_trainers(duration=10):
             print(f"\n🚴 POTENTIAL TRAINER FOUND!")
             print(f"   Name: {device.name or 'Unknown'}")
             print(f"   Address: {device.address}")
-            print(f"   RSSI: {device.rssi} dBm")
+            if hasattr(device, 'rssi'):
+                print(f"   RSSI: {device.rssi} dBm")
             print(f"   Reasons: {', '.join(reasons)}")
             if hasattr(device, 'metadata') and device.metadata and 'uuids' in device.metadata:
                 print(f"   Services: {device.metadata['uuids']}")
         elif device.name:  # Show other named devices too
             print(f"\n   Name: {device.name}")
             print(f"   Address: {device.address}")
-            print(f"   RSSI: {device.rssi} dBm")
+            if hasattr(device, 'rssi'):
+                print(f"   RSSI: {device.rssi} dBm")
     
     print("\n" + "=" * 80)
     print(f"Found {len(trainers)} potential trainer(s)")
