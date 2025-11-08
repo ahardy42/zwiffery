@@ -155,7 +155,7 @@ class VirtualTrainer:
             self._handle_control_point_command(value)
         
         self.server.get_characteristic(FITNESS_MACHINE_CONTROL_POINT_UUID).value = bytearray()
-        self.server.update_value(FTMS_SERVICE_UUID, FITNESS_MACHINE_CONTROL_POINT_UUID)
+        self.server.update_value(FITNESS_MACHINE_CONTROL_POINT_UUID)
         
         logger.info("BLE GATT server setup complete")
     
@@ -303,7 +303,6 @@ class VirtualTrainer:
             try:
                 asyncio.create_task(
                     self.server.update_value(
-                        FTMS_SERVICE_UUID,
                         FITNESS_MACHINE_CONTROL_POINT_UUID,
                         response
                     )
@@ -361,7 +360,6 @@ class VirtualTrainer:
                 
                 if self.server and self.server.get_characteristic(INDOOR_BIKE_DATA_UUID):
                     await self.server.update_value(
-                        FTMS_SERVICE_UUID,
                         INDOOR_BIKE_DATA_UUID,
                         bike_data
                     )
