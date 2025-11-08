@@ -2,10 +2,12 @@
 # For Raspberry Pi / Linux
 
 # BLE GATT Server library (works great on Linux/RPi)
-bless>=0.2.5
+bless==0.2.6
 
 # Alternative BLE library for scanning/analysis (optional)
-bleak>=0.21.0
+# Note: bleak 0.19.x is the last version compatible with bless 0.2.6
+# Newer versions (0.20+) changed internal module structure
+bleak==0.19.5
 
 # For data structure handling
 pyserial>=3.5
