@@ -33,6 +33,16 @@ FITNESS_MACHINE_STATUS_UUID = "00002ada-0000-1000-8000-00805f9b34fb"
 DEVICE_INFO_SERVICE_UUID = "0000180a-0000-1000-8000-00805f9b34fb"
 MANUFACTURER_NAME_UUID = "00002a29-0000-1000-8000-00805f9b34fb"
 MODEL_NUMBER_UUID = "00002a24-0000-1000-8000-00805f9b34fb"
+HARDWARE_REVISION_UUID = "00002a27-0000-1000-8000-00805f9b34fb"
+FIRMWARE_REVISION_UUID = "00002a26-0000-1000-8000-00805f9b34fb"
+SERIAL_NUMBER_UUID = "00002a25-0000-1000-8000-00805f9b34fb"
+
+# Cycling Power Service
+CYCLING_POWER_SERVICE_UUID = "00001818-0000-1000-8000-00805f9b34fb"
+CYCLING_POWER_MEASUREMENT_UUID = "00002a63-0000-1000-8000-00805f9b34fb"
+CYCLING_POWER_FEATURE_UUID = "00002a65-0000-1000-8000-00805f9b34fb"
+CYCLING_POWER_CONTROL_POINT_UUID = "00002a66-0000-1000-8000-00805f9b34fb"
+SENSOR_LOCATION_UUID = "00002a5d-0000-1000-8000-00805f9b34fb"
 
 
 class VirtualTrainer:
@@ -89,6 +99,33 @@ class VirtualTrainer:
             GATTAttributePermissions.readable
         )
         
+        # Hardware Revision
+        await self.server.add_new_characteristic(
+            DEVICE_INFO_SERVICE_UUID,
+            HARDWARE_REVISION_UUID,
+            GATTCharacteristicProperties.read,
+            b"1",
+            GATTAttributePermissions.readable
+        )
+        
+        # Firmware Revision
+        await self.server.add_new_characteristic(
+            DEVICE_INFO_SERVICE_UUID,
+            FIRMWARE_REVISION_UUID,
+            GATTCharacteristicProperties.read,
+            b"1.0.0",
+            GATTAttributePermissions.readable
+        )
+        
+        # Serial Number
+        await self.server.add_new_characteristic(
+            DEVICE_INFO_SERVICE_UUID,
+            SERIAL_NUMBER_UUID,
+            GATTCharacteristicProperties.read,
+            b"ZWIF001",
+            GATTAttributePermissions.readable
+        )
+        
         # Add FTMS Service
         await self.server.add_new_service(FTMS_SERVICE_UUID)
         
@@ -142,6 +179,16 @@ class VirtualTrainer:
             GATTAttributePermissions.writeable
         )
         
+        # Training Status (read and notify)
+        training_status = bytes([0x00, 0x00])  # [0, 0] as per real trainer
+        await self.server.add_new_characteristic(
+            FTMS_SERVICE_UUID,
+            TRAINING_STATUS_UUID,
+            GATTCharacteristicProperties.read | GATTCharacteristicProperties.notify,
+            training_status,
+            GATTAttributePermissions.readable
+        )
+        
         # Fitness Machine Status
         # Initialize with default status (stopped, no error)
         status_data = struct.pack('<B', 0x00)  # Status: Stopped
@@ -150,6 +197,50 @@ class VirtualTrainer:
             FITNESS_MACHINE_STATUS_UUID,
             GATTCharacteristicProperties.notify,
             status_data,
+            GATTAttributePermissions.readable
+        )
+        
+        # Add Cycling Power Service
+        await self.server.add_new_service(CYCLING_POWER_SERVICE_UUID)
+        
+        # Cycling Power Measurement (notify)
+        initial_power_data = self._encode_cycling_power_measurement()
+        await self.server.add_new_characteristic(
+            CYCLING_POWER_SERVICE_UUID,
+            CYCLING_POWER_MEASUREMENT_UUID,
+            GATTCharacteristicProperties.notify,
+            initial_power_data,
+            GATTAttributePermissions.readable
+        )
+        
+        # Cycling Power Feature (read)
+        # Real trainer value: 0e12 = [14, 18]
+        power_feature = bytes([0x0e, 0x12])
+        await self.server.add_new_characteristic(
+            CYCLING_POWER_SERVICE_UUID,
+            CYCLING_POWER_FEATURE_UUID,
+            GATTCharacteristicProperties.read,
+            power_feature,
+            GATTAttributePermissions.readable
+        )
+        
+        # Cycling Power Control Point (write, indicate)
+        await self.server.add_new_characteristic(
+            CYCLING_POWER_SERVICE_UUID,
+            CYCLING_POWER_CONTROL_POINT_UUID,
+            GATTCharacteristicProperties.write | GATTCharacteristicProperties.indicate,
+            None,
+            GATTAttributePermissions.writeable
+        )
+        
+        # Sensor Location (read)
+        # Real trainer value: 00 = [0] (Other)
+        sensor_location = bytes([0x00])
+        await self.server.add_new_characteristic(
+            CYCLING_POWER_SERVICE_UUID,
+            SENSOR_LOCATION_UUID,
+            GATTCharacteristicProperties.read,
+            sensor_location,
             GATTAttributePermissions.readable
         )
         
@@ -177,27 +268,13 @@ class VirtualTrainer:
     def _encode_fitness_machine_features(self) -> bytes:
         """Encode Fitness Machine Feature characteristic
         
-        Indicates what features this trainer supports:
-        - Average Speed Supported
-        - Cadence Supported  
-        - Total Distance Supported
-        - Resistance Level Supported
-        - Power Measurement Supported
-        - Indoor Bike Simulation Parameters Supported
+        Matches real Wahoo trainer: 034000000c600000
+        Value: [3, 64, 0, 0, 12, 96, 0, 0]
         """
-        # FTMS Features (8 bytes)
-        # Byte 0-3: Fitness Machine Features
-        # Bit 0: Average Speed Supported
-        # Bit 1: Cadence Supported
-        # Bit 2: Total Distance Supported
-        # Bit 3: Inclination Supported
-        # Bit 7: Resistance Level Supported
-        # Bit 14: Power Measurement Supported
-        
-        features = 0b00000000000000000000000010001111  # bits 0,1,2,3,7,14
-        target_features = 0b00000000000001000000000000000000  # bit 14: Indoor Bike Simulation Parameters Supported
-        
-        return struct.pack('<II', features, target_features)
+        # Real trainer value: 034000000c600000
+        # This is [3, 64, 0, 0, 12, 96, 0, 0] in little-endian
+        # Features: 0x00004003, Target Features: 0x0000600c
+        return bytes([0x03, 0x40, 0x00, 0x00, 0x0c, 0x60, 0x00, 0x00])
     
     def _encode_indoor_bike_data(self) -> bytes:
         """Encode Indoor Bike Data characteristic for notifications
@@ -231,6 +308,38 @@ class VirtualTrainer:
         power_sint16 = int(self.power)
         
         data = struct.pack('<HHHh', flags, speed_uint16, cadence_uint16, power_sint16)
+        return data
+    
+    def _encode_cycling_power_measurement(self) -> bytes:
+        """Encode Cycling Power Measurement characteristic for notifications
+        
+        Format (all little-endian):
+        Flags (2 bytes)
+        Instantaneous Power (sint16, 1 watt resolution)
+        Optional: Cumulative Wheel Revolutions, Last Wheel Event Time, etc.
+        """
+        # Flags indicating which fields are present
+        # Bit 0: Pedal Power Balance Present
+        # Bit 1: Pedal Power Balance Reference (0 = unknown)
+        # Bit 2: Accumulated Torque Present
+        # Bit 3: Accumulated Torque Source (0 = wheel)
+        # Bit 4: Wheel Revolution Data Present
+        # Bit 5: Crank Revolution Data Present
+        # Bit 6: Extreme Force Magnitudes Present
+        # Bit 7: Extreme Torque Magnitudes Present
+        # Bit 8: Extreme Angles Present
+        # Bit 9: Top Dead Spot Angle Present
+        # Bit 10: Bottom Dead Spot Angle Present
+        # Bit 11: Accumulated Energy Present
+        # Bit 12: Offset Compensation Indicator
+        
+        # Simple flags: just instantaneous power
+        flags = 0b0000000000000000  # No optional fields, just power
+        
+        # Encode instantaneous power (sint16, 1W resolution)
+        power_sint16 = int(self.power)
+        
+        data = struct.pack('<Hh', flags, power_sint16)
         return data
     
     def _handle_control_point_command(self, data: bytearray):
@@ -383,6 +492,18 @@ class VirtualTrainer:
                     self.server.update_value(
                         FTMS_SERVICE_UUID,
                         INDOOR_BIKE_DATA_UUID
+                    )
+                
+                # Encode and send Cycling Power Measurement
+                power_data = self._encode_cycling_power_measurement()
+                
+                if self.server and self.server.get_characteristic(CYCLING_POWER_MEASUREMENT_UUID):
+                    # Set the value on the characteristic first
+                    self.server.get_characteristic(CYCLING_POWER_MEASUREMENT_UUID).value = power_data
+                    # Then notify clients of the update
+                    self.server.update_value(
+                        CYCLING_POWER_SERVICE_UUID,
+                        CYCLING_POWER_MEASUREMENT_UUID
                     )
                     
                     logger.debug(f"Broadcasting - Power: {self.power:.1f}W, "
