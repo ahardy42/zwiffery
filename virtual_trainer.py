@@ -76,6 +76,9 @@ class VirtualTrainer:
         # Default start power for keyboard commands
         self.default_start_power = 150
         
+        # Stopped state - when True, power and cadence stay at 0 with no fluctuations
+        self.is_stopped = True  # Start stopped
+        
     async def setup_server(self):
         """Initialize BLE GATT server"""
         logger.info(f"Setting up BLE server: {self.name}")
@@ -459,6 +462,13 @@ class VirtualTrainer:
     def simulate_realistic_data(self):
         """Simulate realistic cycling data with variations"""
         
+        # If stopped, keep power and cadence at 0 with no fluctuations
+        if self.is_stopped:
+            self.power = 0
+            self.cadence = 0
+            self.speed = 0
+            return
+        
         if self.erg_mode_enabled and self.target_power > 0:
             # In ERG mode, gradually approach target power
             power_diff = self.target_power - self.power
@@ -488,9 +498,11 @@ class VirtualTrainer:
     
     def start_power(self):
         """Start power - go from 0 to default start power"""
-        if self.power == 0:
+        if self.is_stopped:
+            self.is_stopped = False
             self.power = self.default_start_power
             self.base_power = self.default_start_power
+            self.cadence = self.base_cadence
             logger.info(f"🚀 Started: Power set to {self.default_start_power}W")
         else:
             logger.info(f"⚠️  Already running at {self.power}W. Use 'u' to update power.")
@@ -500,15 +512,24 @@ class VirtualTrainer:
         if new_power < 0 or new_power > 2000:
             logger.warning(f"⚠️  Power must be between 0 and 2000W. Got {new_power}W")
             return
+        # If updating to 0, treat it as stop
+        if new_power == 0:
+            self.stop_power()
+            return
+        # Ensure we're not stopped when updating to non-zero power
+        self.is_stopped = False
         self.power = new_power
         self.base_power = new_power
         logger.info(f"⚡ Power updated to {new_power}W")
     
     def stop_power(self):
-        """Stop - go to zero power"""
+        """Stop - go to zero power and cadence, no fluctuations"""
+        self.is_stopped = True
         self.power = 0
         self.base_power = 0
-        logger.info("🛑 Stopped: Power set to 0W")
+        self.cadence = 0
+        self.speed = 0
+        logger.info("🛑 Stopped: Power and cadence set to 0W/0rpm (no fluctuations)")
     
     def _keyboard_input_handler(self):
         """Handle keyboard input in a separate thread"""
