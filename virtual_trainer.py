@@ -103,11 +103,13 @@ class VirtualTrainer:
         )
         
         # Indoor Bike Data (notifies power, cadence, speed)
+        # Initialize with default data (will be updated in the update loop)
+        initial_bike_data = self._encode_indoor_bike_data()
         await self.server.add_new_characteristic(
             FTMS_SERVICE_UUID,
             INDOOR_BIKE_DATA_UUID,
             GATTCharacteristicProperties.notify,
-            None,
+            initial_bike_data,
             GATTAttributePermissions.readable
         )
         
@@ -141,11 +143,13 @@ class VirtualTrainer:
         )
         
         # Fitness Machine Status
+        # Initialize with default status (stopped, no error)
+        status_data = struct.pack('<B', 0x00)  # Status: Stopped
         await self.server.add_new_characteristic(
             FTMS_SERVICE_UUID,
             FITNESS_MACHINE_STATUS_UUID,
             GATTCharacteristicProperties.notify,
-            None,
+            status_data,
             GATTAttributePermissions.readable
         )
         
@@ -155,6 +159,18 @@ class VirtualTrainer:
             self._handle_control_point_command(value)
         
         self.server.get_characteristic(FITNESS_MACHINE_CONTROL_POINT_UUID).value = bytearray()
+        
+        # Set up read callbacks for all readable characteristics
+        def read_handler(characteristic: BlessGATTCharacteristic) -> bytes:
+            """Handle read requests - return the current value of the characteristic"""
+            char_uuid = characteristic.uuid
+            char = self.server.get_characteristic(char_uuid)
+            if char and char.value is not None:
+                return bytes(char.value)
+            return b''
+        
+        # Set read callback for all readable characteristics
+        self.server.read_request_func = read_handler
         
         logger.info("BLE GATT server setup complete")
     
