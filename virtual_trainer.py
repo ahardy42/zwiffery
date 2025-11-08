@@ -78,55 +78,7 @@ class VirtualTrainer:
         # Create BLE server
         self.server = BlessServer(name=self.name, name_overwrite=True)
         
-        # Add Device Information Service
-        await self.server.add_new_service(DEVICE_INFO_SERVICE_UUID)
-        
-        # Manufacturer Name
-        await self.server.add_new_characteristic(
-            DEVICE_INFO_SERVICE_UUID,
-            MANUFACTURER_NAME_UUID,
-            GATTCharacteristicProperties.read,
-            b"Zwiffery Labs",
-            GATTAttributePermissions.readable
-        )
-        
-        # Model Number
-        await self.server.add_new_characteristic(
-            DEVICE_INFO_SERVICE_UUID,
-            MODEL_NUMBER_UUID,
-            GATTCharacteristicProperties.read,
-            b"Virtual Trainer v1.0",
-            GATTAttributePermissions.readable
-        )
-        
-        # Hardware Revision
-        await self.server.add_new_characteristic(
-            DEVICE_INFO_SERVICE_UUID,
-            HARDWARE_REVISION_UUID,
-            GATTCharacteristicProperties.read,
-            b"1",
-            GATTAttributePermissions.readable
-        )
-        
-        # Firmware Revision
-        await self.server.add_new_characteristic(
-            DEVICE_INFO_SERVICE_UUID,
-            FIRMWARE_REVISION_UUID,
-            GATTCharacteristicProperties.read,
-            b"1.0.0",
-            GATTAttributePermissions.readable
-        )
-        
-        # Serial Number
-        await self.server.add_new_characteristic(
-            DEVICE_INFO_SERVICE_UUID,
-            SERIAL_NUMBER_UUID,
-            GATTCharacteristicProperties.read,
-            b"ZWIF001",
-            GATTAttributePermissions.readable
-        )
-        
-        # Add FTMS Service
+        # Add FTMS Service FIRST (most important for Zwift compatibility)
         await self.server.add_new_service(FTMS_SERVICE_UUID)
         
         # Fitness Machine Feature (indicates capabilities)
@@ -203,6 +155,54 @@ class VirtualTrainer:
         # Add Cycling Power Service
         await self.server.add_new_service(CYCLING_POWER_SERVICE_UUID)
         
+        # Add Device Information Service (add last, as it's less critical)
+        await self.server.add_new_service(DEVICE_INFO_SERVICE_UUID)
+        
+        # Manufacturer Name
+        await self.server.add_new_characteristic(
+            DEVICE_INFO_SERVICE_UUID,
+            MANUFACTURER_NAME_UUID,
+            GATTCharacteristicProperties.read,
+            b"Zwiffery Labs",
+            GATTAttributePermissions.readable
+        )
+        
+        # Model Number
+        await self.server.add_new_characteristic(
+            DEVICE_INFO_SERVICE_UUID,
+            MODEL_NUMBER_UUID,
+            GATTCharacteristicProperties.read,
+            b"Virtual Trainer v1.0",
+            GATTAttributePermissions.readable
+        )
+        
+        # Hardware Revision
+        await self.server.add_new_characteristic(
+            DEVICE_INFO_SERVICE_UUID,
+            HARDWARE_REVISION_UUID,
+            GATTCharacteristicProperties.read,
+            b"1",
+            GATTAttributePermissions.readable
+        )
+        
+        # Firmware Revision
+        await self.server.add_new_characteristic(
+            DEVICE_INFO_SERVICE_UUID,
+            FIRMWARE_REVISION_UUID,
+            GATTCharacteristicProperties.read,
+            b"1.0.0",
+            GATTAttributePermissions.readable
+        )
+        
+        # Serial Number
+        await self.server.add_new_characteristic(
+            DEVICE_INFO_SERVICE_UUID,
+            SERIAL_NUMBER_UUID,
+            GATTCharacteristicProperties.read,
+            b"ZWIF001",
+            GATTAttributePermissions.readable
+        )
+        
         # Cycling Power Measurement (notify)
         initial_power_data = self._encode_cycling_power_measurement()
         await self.server.add_new_characteristic(
@@ -262,6 +262,20 @@ class VirtualTrainer:
         
         # Set read callback for all readable characteristics
         self.server.read_request_func = read_handler
+        
+        # Verify services were added correctly
+        try:
+            # Try to get services to verify they exist
+            dev_info_char = self.server.get_characteristic(MANUFACTURER_NAME_UUID)
+            ftms_char = self.server.get_characteristic(FITNESS_MACHINE_FEATURE_UUID)
+            power_char = self.server.get_characteristic(CYCLING_POWER_MEASUREMENT_UUID)
+            
+            logger.info("✓ Verified services are registered:")
+            logger.info(f"  - Device Information Service: {DEVICE_INFO_SERVICE_UUID} ({len([c for c in [dev_info_char] if c])} characteristics)")
+            logger.info(f"  - Fitness Machine Service (FTMS): {FTMS_SERVICE_UUID} ({len([c for c in [ftms_char] if c])} characteristics)")
+            logger.info(f"  - Cycling Power Service: {CYCLING_POWER_SERVICE_UUID} ({len([c for c in [power_char] if c])} characteristics)")
+        except Exception as e:
+            logger.warning(f"Could not verify services: {e}")
         
         logger.info("BLE GATT server setup complete")
     
