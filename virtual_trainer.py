@@ -364,7 +364,7 @@ class VirtualTrainer:
                     # Set the value on the characteristic first
                     self.server.get_characteristic(INDOOR_BIKE_DATA_UUID).value = bike_data
                     # Then notify clients of the update
-                    await self.server.update_value(
+                    self.server.update_value(
                         FTMS_SERVICE_UUID,
                         INDOOR_BIKE_DATA_UUID
                     )
