@@ -9,6 +9,8 @@ import logging
 import struct
 import time
 import random
+import sys
+import threading
 from typing import Optional
 from bless import BlessServer, BlessGATTCharacteristic, GATTCharacteristicProperties, GATTAttributePermissions
 
@@ -53,7 +55,7 @@ class VirtualTrainer:
         self.server: Optional[BlessServer] = None
         
         # Trainer state
-        self.power = 150  # Watts
+        self.power = 0  # Start at 0W - use 's' command to start
         self.cadence = 85  # RPM
         self.speed = 25.0  # km/h
         self.heart_rate = 140  # BPM (optional)
@@ -62,7 +64,7 @@ class VirtualTrainer:
         self.is_running = False
         
         # Simulation parameters
-        self.base_power = 150
+        self.base_power = 0  # Start at 0W
         self.base_cadence = 85
         self.power_variation = 15
         self.cadence_variation = 5
@@ -70,6 +72,9 @@ class VirtualTrainer:
         # ERG mode settings
         self.erg_mode_enabled = False
         self.target_power = 0
+        
+        # Default start power for keyboard commands
+        self.default_start_power = 150
         
     async def setup_server(self):
         """Initialize BLE GATT server"""
@@ -481,6 +486,66 @@ class VirtualTrainer:
         
         self.speed = max(0, min(60, self.speed))
     
+    def start_power(self):
+        """Start power - go from 0 to default start power"""
+        if self.power == 0:
+            self.power = self.default_start_power
+            self.base_power = self.default_start_power
+            logger.info(f"🚀 Started: Power set to {self.default_start_power}W")
+        else:
+            logger.info(f"⚠️  Already running at {self.power}W. Use 'u' to update power.")
+    
+    def update_power(self, new_power: int):
+        """Update power to a specific value"""
+        if new_power < 0 or new_power > 2000:
+            logger.warning(f"⚠️  Power must be between 0 and 2000W. Got {new_power}W")
+            return
+        self.power = new_power
+        self.base_power = new_power
+        logger.info(f"⚡ Power updated to {new_power}W")
+    
+    def stop_power(self):
+        """Stop - go to zero power"""
+        self.power = 0
+        self.base_power = 0
+        logger.info("🛑 Stopped: Power set to 0W")
+    
+    def _keyboard_input_handler(self):
+        """Handle keyboard input in a separate thread"""
+        print("\n" + "=" * 60)
+        print("⌨️  KEYBOARD CONTROLS:")
+        print("  's' or 'start'  - Start power (0 → default)")
+        print("  'u <watts>'      - Update power (e.g., 'u 200')")
+        print("  'stop'           - Stop power (→ 0W)")
+        print("  'q' or 'quit'    - Quit trainer")
+        print("=" * 60 + "\n")
+        
+        while True:
+            try:
+                line = input().strip().lower()
+                
+                if line in ['s', 'start']:
+                    self.start_power()
+                elif line.startswith('u '):
+                    try:
+                        watts = int(line.split()[1])
+                        self.update_power(watts)
+                    except (IndexError, ValueError):
+                        print("⚠️  Usage: 'u <watts>' (e.g., 'u 200')")
+                elif line == 'stop':
+                    self.stop_power()
+                elif line in ['q', 'quit', 'exit']:
+                    print("\n🛑 Shutting down...")
+                    # Signal shutdown by setting a flag or using os._exit
+                    import os
+                    os._exit(0)
+                else:
+                    print(f"⚠️  Unknown command: '{line}'. Type 's' to start, 'u <watts>' to update, 'stop' to stop.")
+            except EOFError:
+                break
+            except Exception as e:
+                logger.error(f"Error in keyboard handler: {e}")
+    
     async def start_advertising(self):
         """Start BLE advertising"""
         logger.info(f"Starting BLE advertising as '{self.name}'")
@@ -547,6 +612,11 @@ class VirtualTrainer:
             logger.info(f"🔍 Look for: '{self.name}'")
             logger.info("⚡ Broadcasting power and cadence data...")
             logger.info("")
+            
+            # Start keyboard input handler in a separate thread
+            keyboard_thread = threading.Thread(target=self._keyboard_input_handler, daemon=True)
+            keyboard_thread.start()
+            
             logger.info("Press Ctrl+C to stop")
             logger.info("=" * 60)
             
