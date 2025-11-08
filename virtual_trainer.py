@@ -300,10 +300,13 @@ class VirtualTrainer:
         # In Bless, we need to update the characteristic value for indication
         if self.server:
             try:
+                # Set the value on the characteristic first
+                self.server.get_characteristic(FITNESS_MACHINE_CONTROL_POINT_UUID).value = response
+                # Then indicate clients of the update
                 asyncio.create_task(
                     self.server.update_value(
-                        FITNESS_MACHINE_CONTROL_POINT_UUID,
-                        response
+                        FTMS_SERVICE_UUID,
+                        FITNESS_MACHINE_CONTROL_POINT_UUID
                     )
                 )
             except Exception as e:
@@ -358,9 +361,12 @@ class VirtualTrainer:
                 bike_data = self._encode_indoor_bike_data()
                 
                 if self.server and self.server.get_characteristic(INDOOR_BIKE_DATA_UUID):
+                    # Set the value on the characteristic first
+                    self.server.get_characteristic(INDOOR_BIKE_DATA_UUID).value = bike_data
+                    # Then notify clients of the update
                     await self.server.update_value(
-                        INDOOR_BIKE_DATA_UUID,
-                        bike_data
+                        FTMS_SERVICE_UUID,
+                        INDOOR_BIKE_DATA_UUID
                     )
                     
                     logger.debug(f"Broadcasting - Power: {self.power:.1f}W, "
