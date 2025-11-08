@@ -155,7 +155,6 @@ class VirtualTrainer:
             self._handle_control_point_command(value)
         
         self.server.get_characteristic(FITNESS_MACHINE_CONTROL_POINT_UUID).value = bytearray()
-        self.server.update_value(FITNESS_MACHINE_CONTROL_POINT_UUID)
         
         logger.info("BLE GATT server setup complete")
     
