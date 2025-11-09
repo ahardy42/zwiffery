@@ -238,6 +238,14 @@ If you're using an iPhone with Zwift and experiencing repeated pairing requests 
    - Reduce Wi-Fi router proximity if possible
 
 5. **Configure BlueZ for better bonding (Linux/Raspberry Pi):**
+   
+   **Option A: Use the automated script (recommended):**
+   ```bash
+   chmod +x configure_ios_bonding.sh
+   ./configure_ios_bonding.sh
+   ```
+   
+   **Option B: Manual configuration:**
    ```bash
    # Edit BlueZ main configuration
    sudo nano /etc/bluetooth/main.conf
@@ -250,6 +258,11 @@ If you're using an iPhone with Zwift and experiencing repeated pairing requests 
    # Restart Bluetooth service
    sudo systemctl restart bluetooth
    ```
+   
+   **After configuration:**
+   - Restart your virtual trainer
+   - On iPhone: Go to Settings > Bluetooth, find "Zwiffery Trainer", tap (i), and "Forget This Device"
+   - Pair again through Zwift app (not iPhone Settings)
 
 6. **If disconnections persist:**
    - Restart both iPhone and the trainer device

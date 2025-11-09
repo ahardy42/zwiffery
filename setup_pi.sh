@@ -60,6 +60,47 @@ sudo systemctl start bluetooth
 echo "✓ Bluetooth service enabled"
 echo ""
 
+# Configure BlueZ for iOS bonding
+echo "📱 Step 6.5: Configuring BlueZ for iOS bonding..."
+BLUEZ_CONF="/etc/bluetooth/main.conf"
+if [ -f "$BLUEZ_CONF" ]; then
+    # Backup original config
+    if [ ! -f "${BLUEZ_CONF}.backup" ]; then
+        sudo cp "$BLUEZ_CONF" "${BLUEZ_CONF}.backup"
+        echo "✓ Backed up original BlueZ config"
+    fi
+    
+    # Check if Policy section exists and update it
+    if grep -q "^\[Policy\]" "$BLUEZ_CONF"; then
+        # Policy section exists, update it
+        if ! grep -q "JustWorksRepairing=always" "$BLUEZ_CONF"; then
+            sudo sed -i '/^\[Policy\]/a JustWorksRepairing=always' "$BLUEZ_CONF"
+        fi
+        if ! grep -q "^AutoEnable=true" "$BLUEZ_CONF"; then
+            sudo sed -i '/^\[Policy\]/a AutoEnable=true' "$BLUEZ_CONF"
+        fi
+    else
+        # Policy section doesn't exist, add it
+        echo "" | sudo tee -a "$BLUEZ_CONF" > /dev/null
+        echo "[Policy]" | sudo tee -a "$BLUEZ_CONF" > /dev/null
+        echo "AutoEnable=true" | sudo tee -a "$BLUEZ_CONF" > /dev/null
+        echo "JustWorksRepairing=always" | sudo tee -a "$BLUEZ_CONF" > /dev/null
+    fi
+    
+    echo "✓ BlueZ configured for iOS bonding"
+    echo "   - JustWorksRepairing=always (for easier iOS pairing)"
+    echo "   - AutoEnable=true (auto-enable Bluetooth)"
+    echo ""
+    echo "   Restarting Bluetooth service to apply changes..."
+    sudo systemctl restart bluetooth
+    sleep 2
+    echo "✓ Bluetooth service restarted"
+else
+    echo "⚠️  BlueZ config file not found at $BLUEZ_CONF"
+    echo "   You may need to configure it manually"
+fi
+echo ""
+
 # Check Bluetooth status
 echo "🔍 Step 7: Checking Bluetooth status..."
 if systemctl is-active --quiet bluetooth; then
