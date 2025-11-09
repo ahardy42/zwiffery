@@ -96,10 +96,13 @@ class VirtualTrainer:
         self.is_stopped = True  # Start stopped
         
         # Super tuck state - when True, rider is in super tuck (power/cadence = 0)
-        # Super tuck conditions: speed >= 38mph (61.15 km/h) AND grade <= -6%
+        # Super tuck entry: speed >= 38mph (61.15 km/h) AND grade <= -8%
+        # Super tuck exit: speed < 38mph OR grade >= -3%
+        # This hysteresis prevents rapid toggling
         self.is_super_tuck = False
         self.super_tuck_speed_threshold = 61.15  # 38 mph in km/h
-        self.super_tuck_grade_threshold = -6.0  # -6% grade
+        self.super_tuck_grade_threshold_entry = -8.0  # -8% grade to ENTER super tuck
+        self.super_tuck_grade_threshold_exit = -3.0  # -3% grade to EXIT super tuck (less strict)
         self.pre_super_tuck_base_power = 0  # Store power before super tuck to restore later
         self.super_tuck_speed = 0.0  # Speed when entering super tuck (maintained during super tuck)
         
@@ -529,16 +532,29 @@ class VirtualTrainer:
             return grade * 2.0
         return grade
     
-    def _check_super_tuck_conditions(self) -> bool:
-        """Check if super tuck conditions are met
+    def _check_can_enter_super_tuck(self) -> bool:
+        """Check if conditions are met to ENTER super tuck
         
-        Returns True if speed >= 38mph (61.15 km/h) AND grade <= -6%
+        Returns True if speed >= 38mph (61.15 km/h) AND grade <= -8%
         Note: grade is already corrected when stored, so we use current_grade directly
         """
         speed_ok = self.speed >= self.super_tuck_speed_threshold
-        grade_ok = self.current_grade <= self.super_tuck_grade_threshold
-        logger.info(f"Super tuck conditions: Speed: {self.speed}, Grade: {self.current_grade}")
+        grade_ok = self.current_grade <= self.super_tuck_grade_threshold_entry
+        logger.debug(f"Super tuck entry check: Speed: {self.speed:.1f}km/h (need >= {self.super_tuck_speed_threshold:.1f}), Grade: {self.current_grade:.2f}% (need <= {self.super_tuck_grade_threshold_entry:.1f}%)")
         return speed_ok and grade_ok
+    
+    def _check_should_exit_super_tuck(self) -> bool:
+        """Check if conditions are met to EXIT super tuck
+        
+        Returns True if speed < 38mph (61.15 km/h) OR grade >= -3%
+        Note: grade is already corrected when stored, so we use current_grade directly
+        """
+        speed_too_low = self.speed < self.super_tuck_speed_threshold
+        grade_too_shallow = self.current_grade >= self.super_tuck_grade_threshold_exit
+        should_exit = speed_too_low or grade_too_shallow
+        if should_exit:
+            logger.debug(f"Super tuck exit check: Speed: {self.speed:.1f}km/h (need >= {self.super_tuck_speed_threshold:.1f}), Grade: {self.current_grade:.2f}% (need < {self.super_tuck_grade_threshold_exit:.1f}%)")
+        return should_exit
     
     def _calculate_bike_speed(self, power: float, grade: float, wind: float = None) -> float:
         """Calculate bike speed using physics model
@@ -708,34 +724,41 @@ class VirtualTrainer:
             if not self.is_stopped:
                 logger.info(f"Speed is 0 because power is 0 (base_power={self.base_power}, erg_mode={self.erg_mode_enabled}, target_power={self.target_power})")
         
-        # Check super tuck conditions (using current speed and grade)
-        can_super_tuck = self._check_super_tuck_conditions()
-        
-        if can_super_tuck:
-            # Enter or maintain super tuck
-            if not self.is_super_tuck:
+        # Check super tuck conditions with hysteresis (different thresholds for entry vs exit)
+        if self.is_super_tuck:
+            # Already in super tuck - check if we should exit
+            should_exit = self._check_should_exit_super_tuck()
+            if should_exit:
+                # Exiting super tuck - restore base power
+                self.base_power = self.pre_super_tuck_base_power
+                logger.info(f"🚴 Super tuck disengaged. Speed: {self.speed:.1f} km/h, Grade: {self.current_grade:.1f}%")
+                self.is_super_tuck = False
+            else:
+                # Maintain super tuck - set power and cadence to 0
+                self.power = 0
+                self.cadence = 0
+                
+                # During super tuck, calculate speed with power=0 using physics model
+                # This simulates coasting down a descent - speed will increase on negative grades
+                self.speed = self._calculate_bike_speed(0.0, self.current_grade, self.current_wind_speed)
+                self.super_tuck_speed = self.speed  # Update stored speed
+        else:
+            # Not in super tuck - check if we can enter
+            can_enter = self._check_can_enter_super_tuck()
+            if can_enter:
                 # Entering super tuck - save current base power and speed
                 self.pre_super_tuck_base_power = self.base_power
                 self.super_tuck_speed = self.speed
                 logger.info(f"🏎️  Super tuck engaged! Speed: {self.speed:.1f} km/h, Grade: {self.current_grade:.1f}%")
-            
-            self.is_super_tuck = True
-            # Set power and cadence to 0 during super tuck
-            self.power = 0
-            self.cadence = 0
-            
-            # During super tuck, calculate speed with power=0 using physics model
-            # This simulates coasting down a descent - speed will increase on negative grades
-            self.speed = self._calculate_bike_speed(0.0, self.current_grade, self.current_wind_speed)
-            self.super_tuck_speed = self.speed  # Update stored speed
-        else:
-            # Exit super tuck if conditions no longer met
-            if self.is_super_tuck:
-                # Exiting super tuck - restore base power
-                self.base_power = self.pre_super_tuck_base_power
-                logger.info(f"🚴 Super tuck disengaged. Resuming normal power: {self.base_power}W")
-            
-            self.is_super_tuck = False
+                self.is_super_tuck = True
+                # Set power and cadence to 0 during super tuck
+                self.power = 0
+                self.cadence = 0
+                
+                # During super tuck, calculate speed with power=0 using physics model
+                # This simulates coasting down a descent - speed will increase on negative grades
+                self.speed = self._calculate_bike_speed(0.0, self.current_grade, self.current_wind_speed)
+                self.super_tuck_speed = self.speed  # Update stored speed
     
     
     def start_power(self):
