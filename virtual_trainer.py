@@ -260,12 +260,31 @@ class VirtualTrainer:
             GATTAttributePermissions.readable
         )
         
-        # Set up write callback for control point
-        def control_point_write_handler(characteristic: BlessGATTCharacteristic, value: bytearray):
-            logger.info(f"Control Point Write: {value.hex()}")
-            self._handle_control_point_command(value)
-        
+        # Initialize control point characteristics with empty values
         self.server.get_characteristic(FITNESS_MACHINE_CONTROL_POINT_UUID).value = bytearray()
+        self.server.get_characteristic(CYCLING_POWER_CONTROL_POINT_UUID).value = bytearray()
+        
+        # Set up write callback for all writable characteristics
+        def write_handler(characteristic: BlessGATTCharacteristic, value: bytearray):
+            """Handle write requests - route to appropriate handler based on characteristic UUID"""
+            char_uuid = str(characteristic.uuid).lower().replace('-', '')
+            logger.info(f"Write to characteristic {char_uuid}: {value.hex()}")
+            
+            # Normalize UUIDs for comparison (remove dashes, lowercase)
+            ftms_cp_uuid = FITNESS_MACHINE_CONTROL_POINT_UUID.lower().replace('-', '')
+            cycling_cp_uuid = CYCLING_POWER_CONTROL_POINT_UUID.lower().replace('-', '')
+            
+            if char_uuid == ftms_cp_uuid:
+                # Handle FTMS control point commands
+                self._handle_control_point_command(value)
+            elif char_uuid == cycling_cp_uuid:
+                # Handle Cycling Power control point commands (similar to FTMS)
+                self._handle_control_point_command(value)
+            else:
+                logger.warning(f"Write to unknown characteristic: {char_uuid}")
+        
+        # Set write callback for all writable characteristics
+        self.server.write_request_func = write_handler
         
         # Set up read callbacks for all readable characteristics
         def read_handler(characteristic: BlessGATTCharacteristic) -> bytes:
