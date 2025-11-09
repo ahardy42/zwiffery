@@ -12,3 +12,6 @@ bleak==0.19.5
 # For data structure handling
 pyserial>=3.5
 
+# For physics-based speed calculations
+scipy>=1.9.0
+

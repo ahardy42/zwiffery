@@ -11,7 +11,9 @@ import time
 import random
 import sys
 import threading
+import math
 from typing import Optional
+from scipy.optimize import fsolve
 from bless import BlessServer, BlessGATTCharacteristic, GATTCharacteristicProperties, GATTAttributePermissions
 
 # Configure logging
@@ -84,6 +86,9 @@ class VirtualTrainer:
         # Grade/slope from Zwift (SIM mode)
         self.current_grade = 0.0  # Grade percentage (e.g., 4.78 for 4.78%)
         
+        # Wind speed from Zwift (SIM mode)
+        self.current_wind_speed = 0.0  # Wind speed in m/s
+        
         # Default start power for keyboard commands
         self.default_start_power = 150
         
@@ -97,6 +102,12 @@ class VirtualTrainer:
         self.super_tuck_grade_threshold = -6.0  # -6% grade
         self.pre_super_tuck_base_power = 0  # Store power before super tuck to restore later
         self.super_tuck_speed = 0.0  # Speed when entering super tuck (maintained during super tuck)
+        
+        # Physics model parameters for speed calculation
+        self.rider_weight = 80.0  # kg (rider + bike)
+        self.cda = 0.3  # Coefficient of drag area (m²)
+        self.crr = 0.004  # Coefficient of rolling resistance
+        self.rho = 1.226  # Air density (kg/m³)
         
     async def setup_server(self):
         """Initialize BLE GATT server"""
@@ -466,8 +477,10 @@ class VirtualTrainer:
                 cw = struct.unpack('<B', data[6:7])[0]  # wind resistance * 100
                 # Store grade as percentage (e.g., 4.78 for 4.78%)
                 self.current_grade = grade_raw / 100.0
-                logger.info(f"Zwift SIM mode - Grade: {self.current_grade}%, Wind: {wind_speed/1000}m/s")
-                # Grade will be used to adjust power output in simulate_realistic_data
+                # Store wind speed in m/s
+                self.current_wind_speed = wind_speed / 1000.0
+                logger.info(f"Zwift SIM mode - Grade: {self.current_grade}%, Wind: {self.current_wind_speed:.2f}m/s")
+                # Grade and wind will be used in physics-based speed calculation
                 self._send_control_point_response(opcode, 0x01)
         else:
             logger.warning(f"Unknown control point opcode: 0x{opcode:02x}")
@@ -506,6 +519,64 @@ class VirtualTrainer:
         grade_ok = self.current_grade <= self.super_tuck_grade_threshold
         return speed_ok and grade_ok
     
+    def _calculate_bike_speed(self, power: float, grade: float, wind: float = None) -> float:
+        """Calculate bike speed using physics model
+        
+        Args:
+            power: Power in watts
+            grade: Grade percentage (e.g., 3.0 for 3%)
+            wind: Wind speed in m/s (defaults to self.current_wind_speed)
+        
+        Returns:
+            Speed in km/h
+        """
+        if wind is None:
+            wind = self.current_wind_speed
+        
+        g = 9.81  # Gravitational acceleration (m/s²)
+        theta = math.atan(grade / 100.0)  # Angle in radians
+        m = self.rider_weight  # Mass in kg
+        
+        def equation(v):
+            """Physics equation: power = (aerodynamic + rolling + gravitational) * velocity"""
+            # Ensure velocity is non-negative
+            v = max(0.0, v)
+            faero = 0.5 * self.rho * self.cda * (v + wind) ** 2
+            froll = self.crr * m * g * math.cos(theta)
+            fgrav = m * g * math.sin(theta)
+            return (faero + froll + fgrav) * v - power
+        
+        # Better initial guess based on power and grade
+        if power > 0:
+            # Rough estimate: higher power or steeper descent = higher speed
+            v_guess = 5.0 + (power / 100.0) - (grade / 10.0)
+        elif grade < 0:
+            # On descent with no power, estimate terminal velocity
+            # Rough estimate based on grade (steeper = faster)
+            v_guess = abs(grade) * 2.0  # m/s
+        else:
+            # Uphill or flat with no power = stopped
+            v_guess = 0.1
+        
+        v_guess = max(0.1, v_guess)  # Ensure positive initial guess
+        
+        try:
+            v_solution = fsolve(equation, v_guess)[0]
+            # Convert from m/s to km/h
+            speed_kmh = v_solution * 3.6
+            # Ensure non-negative and reasonable speed (cap at 150 km/h)
+            speed_kmh = max(0.0, min(150.0, speed_kmh))
+            return speed_kmh
+        except Exception as e:
+            logger.warning(f"Error calculating speed with physics model: {e}, using fallback")
+            # Fallback to simple calculation if physics model fails
+            if power > 0:
+                return 15 + (power / 10)
+            elif grade < 0:
+                # Rough estimate for descent
+                return abs(grade) * 7.0  # km/h per % grade
+            return 0.0
+    
     def simulate_realistic_data(self):
         """Simulate realistic cycling data with variations"""
         
@@ -518,14 +589,13 @@ class VirtualTrainer:
             return
         
         # Calculate speed first (needed to check super tuck conditions)
-        # When not in super tuck, speed is calculated from power
+        # When not in super tuck, speed is calculated from power using physics model
         if not self.is_super_tuck:
-            # Calculate speed from power when not in super tuck
+            # Calculate speed from power using physics model
             if self.power > 0:
-                self.speed = 15 + (self.power / 10)  # Simplified relationship
+                self.speed = self._calculate_bike_speed(self.power, self.current_grade, self.current_wind_speed)
             else:
                 self.speed = 0
-            self.speed = max(0, min(60, self.speed))
         
         # Check super tuck conditions (using current speed and grade)
         can_super_tuck = self._check_super_tuck_conditions()
@@ -543,20 +613,10 @@ class VirtualTrainer:
             self.power = 0
             self.cadence = 0
             
-            # During super tuck, speed continues to increase due to gravity on descent
-            # Simulate speed increase based on grade (more negative grade = faster acceleration)
-            if self.current_grade < 0:
-                # Simple physics: speed increases on descent
-                # More negative grade = steeper descent = faster acceleration
-                acceleration = abs(self.current_grade) * 0.5  # km/h per second per % grade
-                self.super_tuck_speed += acceleration
-                self.speed = self.super_tuck_speed
-            else:
-                # If grade becomes positive, maintain current speed (will exit super tuck soon)
-                self.speed = self.super_tuck_speed
-            
-            # Cap speed at reasonable maximum (e.g., 100 km/h)
-            self.speed = min(self.speed, 100.0)
+            # During super tuck, calculate speed with power=0 using physics model
+            # This simulates coasting down a descent - speed will increase on negative grades
+            self.speed = self._calculate_bike_speed(0.0, self.current_grade, self.current_wind_speed)
+            self.super_tuck_speed = self.speed  # Update stored speed
             
             return  # Skip normal power calculation during super tuck
         
@@ -603,12 +663,11 @@ class VirtualTrainer:
         self.power = max(0, min(2000, self.power))
         self.cadence = max(0, min(200, self.cadence))
         
-        # Update speed from power (for next iteration's super tuck check)
+        # Update speed from power using physics model (for next iteration's super tuck check)
         if self.power > 0:
-            self.speed = 15 + (self.power / 10)  # Simplified relationship
+            self.speed = self._calculate_bike_speed(self.power, self.current_grade, self.current_wind_speed)
         else:
             self.speed = 0
-        self.speed = max(0, min(60, self.speed))
     
     
     def start_power(self):
