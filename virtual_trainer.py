@@ -499,8 +499,8 @@ class VirtualTrainer:
             self.speed = 0
             return
         
-        # Calculate grade multiplier: 1 + (2 * grade / 100)
-        # Example: 10% grade → 1.2x, -10% grade → 0.8x
+        # Calculate grade multiplier: 1 + (4 * grade / 100)
+        # Example: 10% grade → 1.4x, -10% grade → 0.6x
         grade_multiplier = 1.0 + (4.0 * self.current_grade / 100.0)
         
         if self.erg_mode_enabled and self.target_power > 0:
@@ -520,7 +520,7 @@ class VirtualTrainer:
         else:
             # Normal mode - apply grade multiplier to base power, then add variance
             if self.base_power > 0:
-                # Apply grade multiplier: base_power * (1 + 2 * grade / 100)
+                # Apply grade multiplier: base_power * (1 + 4 * grade / 100)
                 effective_base_power = self.base_power * grade_multiplier
                 # Then apply variance to the adjusted power
                 variance_amount = effective_base_power * self.power_variance_percent
