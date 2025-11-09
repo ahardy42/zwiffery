@@ -476,12 +476,10 @@ class VirtualTrainer:
             try:
                 # Set the value on the characteristic first
                 self.server.get_characteristic(FITNESS_MACHINE_CONTROL_POINT_UUID).value = response
-                # Then indicate clients of the update
-                asyncio.create_task(
-                    self.server.update_value(
-                        FTMS_SERVICE_UUID,
-                        FITNESS_MACHINE_CONTROL_POINT_UUID
-                    )
+                # Then indicate clients of the update (update_value is synchronous)
+                self.server.update_value(
+                    FTMS_SERVICE_UUID,
+                    FITNESS_MACHINE_CONTROL_POINT_UUID
                 )
             except Exception as e:
                 logger.error(f"Error sending control point response: {e}")
