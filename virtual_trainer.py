@@ -81,6 +81,9 @@ class VirtualTrainer:
         self.erg_mode_enabled = False
         self.target_power = 0
         
+        # Grade/slope from Zwift (SIM mode)
+        self.current_grade = 0.0  # Grade percentage (e.g., 4.78 for 4.78%)
+        
         # Default start power for keyboard commands
         self.default_start_power = 150
         
@@ -450,11 +453,13 @@ class VirtualTrainer:
             # This is sent during SIM mode (slope simulation)
             if len(data) >= 7:
                 wind_speed = struct.unpack('<h', data[1:3])[0]  # m/s * 1000
-                grade = struct.unpack('<h', data[3:5])[0]  # percentage * 100
+                grade_raw = struct.unpack('<h', data[3:5])[0]  # percentage * 100
                 crr = struct.unpack('<B', data[5:6])[0]  # rolling resistance * 10000
                 cw = struct.unpack('<B', data[6:7])[0]  # wind resistance * 100
-                logger.info(f"Zwift SIM mode - Grade: {grade/100}%, Wind: {wind_speed/1000}m/s")
-                # In a real trainer, you'd adjust resistance based on these parameters
+                # Store grade as percentage (e.g., 4.78 for 4.78%)
+                self.current_grade = grade_raw / 100.0
+                logger.info(f"Zwift SIM mode - Grade: {self.current_grade}%, Wind: {wind_speed/1000}m/s")
+                # Grade will be used to adjust power output in simulate_realistic_data
                 self._send_control_point_response(opcode, 0x01)
         else:
             logger.warning(f"Unknown control point opcode: 0x{opcode:02x}")
@@ -494,24 +499,32 @@ class VirtualTrainer:
             self.speed = 0
             return
         
+        # Calculate grade multiplier: 1 + (2 * grade / 100)
+        # Example: 10% grade → 1.2x, -10% grade → 0.8x
+        grade_multiplier = 1.0 + (2.0 * self.current_grade / 100.0)
+        
         if self.erg_mode_enabled and self.target_power > 0:
             # In ERG mode, gradually approach target power
-            power_diff = self.target_power - self.power
+            # Apply grade multiplier to target power
+            effective_target_power = self.target_power * grade_multiplier
+            power_diff = effective_target_power - self.power
             self.power += power_diff * 0.1  # Gradual approach
             # Use percentage-based variance in ERG mode too
-            if self.target_power > 0:
-                variance_amount = self.target_power * self.power_variance_percent
+            if effective_target_power > 0:
+                variance_amount = effective_target_power * self.power_variance_percent
                 self.power += random.uniform(-variance_amount, variance_amount)
             self.power = max(0, min(2000, self.power))
             
             # Cadence adjusts naturally with power in ERG mode
             self.cadence = self.base_cadence + random.uniform(-self.cadence_variation, self.cadence_variation)
         else:
-            # Normal mode - natural variations
-            # Power variance is percentage-based
+            # Normal mode - apply grade multiplier to base power, then add variance
             if self.base_power > 0:
-                variance_amount = self.base_power * self.power_variance_percent
-                self.power = self.base_power + random.uniform(-variance_amount, variance_amount)
+                # Apply grade multiplier: base_power * (1 + 2 * grade / 100)
+                effective_base_power = self.base_power * grade_multiplier
+                # Then apply variance to the adjusted power
+                variance_amount = effective_base_power * self.power_variance_percent
+                self.power = effective_base_power + random.uniform(-variance_amount, variance_amount)
             else:
                 self.power = 0
             self.cadence = self.base_cadence + random.uniform(-self.cadence_variation, self.cadence_variation)
