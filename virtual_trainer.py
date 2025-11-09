@@ -90,6 +90,14 @@ class VirtualTrainer:
         # Stopped state - when True, power and cadence stay at 0 with no fluctuations
         self.is_stopped = True  # Start stopped
         
+        # Super tuck state - when True, rider is in super tuck (power/cadence = 0)
+        # Super tuck conditions: speed >= 38mph (61.15 km/h) AND grade <= -6%
+        self.is_super_tuck = False
+        self.super_tuck_speed_threshold = 61.15  # 38 mph in km/h
+        self.super_tuck_grade_threshold = -6.0  # -6% grade
+        self.pre_super_tuck_base_power = 0  # Store power before super tuck to restore later
+        self.super_tuck_speed = 0.0  # Speed when entering super tuck (maintained during super tuck)
+        
     async def setup_server(self):
         """Initialize BLE GATT server"""
         logger.info(f"Setting up BLE server: {self.name}")
@@ -489,6 +497,15 @@ class VirtualTrainer:
             except Exception as e:
                 logger.error(f"Error sending control point response: {e}")
     
+    def _check_super_tuck_conditions(self) -> bool:
+        """Check if super tuck conditions are met
+        
+        Returns True if speed >= 38mph (61.15 km/h) AND grade <= -6%
+        """
+        speed_ok = self.speed >= self.super_tuck_speed_threshold
+        grade_ok = self.current_grade <= self.super_tuck_grade_threshold
+        return speed_ok and grade_ok
+    
     def simulate_realistic_data(self):
         """Simulate realistic cycling data with variations"""
         
@@ -497,8 +514,61 @@ class VirtualTrainer:
             self.power = 0
             self.cadence = 0
             self.speed = 0
+            self.is_super_tuck = False
             return
         
+        # Calculate speed first (needed to check super tuck conditions)
+        # When not in super tuck, speed is calculated from power
+        if not self.is_super_tuck:
+            # Calculate speed from power when not in super tuck
+            if self.power > 0:
+                self.speed = 15 + (self.power / 10)  # Simplified relationship
+            else:
+                self.speed = 0
+            self.speed = max(0, min(60, self.speed))
+        
+        # Check super tuck conditions (using current speed and grade)
+        can_super_tuck = self._check_super_tuck_conditions()
+        
+        if can_super_tuck:
+            # Enter or maintain super tuck
+            if not self.is_super_tuck:
+                # Entering super tuck - save current base power and speed
+                self.pre_super_tuck_base_power = self.base_power
+                self.super_tuck_speed = self.speed
+                logger.info(f"🏎️  Super tuck engaged! Speed: {self.speed:.1f} km/h, Grade: {self.current_grade:.1f}%")
+            
+            self.is_super_tuck = True
+            # Set power and cadence to 0 during super tuck
+            self.power = 0
+            self.cadence = 0
+            
+            # During super tuck, speed continues to increase due to gravity on descent
+            # Simulate speed increase based on grade (more negative grade = faster acceleration)
+            if self.current_grade < 0:
+                # Simple physics: speed increases on descent
+                # More negative grade = steeper descent = faster acceleration
+                acceleration = abs(self.current_grade) * 0.5  # km/h per second per % grade
+                self.super_tuck_speed += acceleration
+                self.speed = self.super_tuck_speed
+            else:
+                # If grade becomes positive, maintain current speed (will exit super tuck soon)
+                self.speed = self.super_tuck_speed
+            
+            # Cap speed at reasonable maximum (e.g., 100 km/h)
+            self.speed = min(self.speed, 100.0)
+            
+            return  # Skip normal power calculation during super tuck
+        
+        # Exit super tuck if conditions no longer met
+        if self.is_super_tuck:
+            # Exiting super tuck - restore base power
+            self.base_power = self.pre_super_tuck_base_power
+            logger.info(f"🚴 Super tuck disengaged. Resuming normal power: {self.base_power}W")
+        
+        self.is_super_tuck = False
+        
+        # Normal power calculation (only reached if not in super tuck)
         # Calculate grade multiplier: 1 + (4 * grade / 100)
         # Example: 10% grade → 1.4x, -10% grade → 0.6x
         grade_multiplier = 1.0 + (4.0 * self.current_grade / 100.0)
@@ -533,14 +603,13 @@ class VirtualTrainer:
         self.power = max(0, min(2000, self.power))
         self.cadence = max(0, min(200, self.cadence))
         
-        # Speed correlates roughly with power (simplified physics)
-        # This is a very rough approximation: speed ≈ ∛(power)
+        # Update speed from power (for next iteration's super tuck check)
         if self.power > 0:
             self.speed = 15 + (self.power / 10)  # Simplified relationship
         else:
             self.speed = 0
-        
         self.speed = max(0, min(60, self.speed))
+    
     
     def start_power(self):
         """Start trainer - clears stopped state but keeps power at 0 until updated"""
