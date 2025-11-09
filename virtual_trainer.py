@@ -587,15 +587,20 @@ class VirtualTrainer:
             speed_kmh = v_solution * 3.6
             # Ensure non-negative and reasonable speed (cap at 150 km/h)
             speed_kmh = max(0.0, min(150.0, speed_kmh))
+            logger.debug(f"Physics model: power={power}W, grade={grade}%, wind={wind}m/s -> v={v_solution:.2f}m/s -> {speed_kmh:.1f}km/h")
             return speed_kmh
         except Exception as e:
             logger.warning(f"Error calculating speed with physics model: {e}, using fallback")
             # Fallback to simple calculation if physics model fails
             if power > 0:
-                return 15 + (power / 10)
+                fallback_speed = 15 + (power / 10)
+                logger.debug(f"Fallback calculation: {fallback_speed:.1f}km/h")
+                return fallback_speed
             elif grade < 0:
                 # Rough estimate for descent
-                return abs(grade) * 7.0  # km/h per % grade
+                fallback_speed = abs(grade) * 7.0  # km/h per % grade
+                logger.debug(f"Fallback descent: {fallback_speed:.1f}km/h")
+                return fallback_speed
             return 0.0
     
     def simulate_realistic_data(self):
@@ -636,8 +641,10 @@ class VirtualTrainer:
                 # Then apply variance to the adjusted power
                 variance_amount = effective_base_power * self.power_variance_percent
                 self.power = effective_base_power + random.uniform(-variance_amount, variance_amount)
+                logger.debug(f"Power calculation: base={self.base_power}W, grade_mult={grade_multiplier:.2f}, effective={effective_base_power:.1f}W, final={self.power:.1f}W")
             else:
                 self.power = 0
+                logger.debug(f"Power is 0 because base_power is 0")
             self.cadence = self.base_cadence + random.uniform(-self.cadence_variation, self.cadence_variation)
         
         # Ensure values stay in realistic ranges
@@ -646,9 +653,18 @@ class VirtualTrainer:
         
         # Calculate speed from the NEW power value using physics model
         if self.power > 0:
-            self.speed = self._calculate_bike_speed(self.power, self.current_grade, self.current_wind_speed)
+            calculated_speed = self._calculate_bike_speed(self.power, self.current_grade, self.current_wind_speed)
+            if calculated_speed > 0:
+                self.speed = calculated_speed
+                logger.debug(f"Speed calculation: power={self.power:.1f}W, grade={self.current_grade:.2f}%, wind={self.current_wind_speed:.2f}m/s -> speed={self.speed:.1f}km/h")
+            else:
+                # Physics model returned 0 or negative - use fallback
+                logger.warning(f"Physics model returned {calculated_speed:.1f}km/h for power={self.power:.1f}W, using fallback")
+                self.speed = 15 + (self.power / 10)  # Simple fallback
         else:
             self.speed = 0
+            if not self.is_stopped:
+                logger.info(f"Speed is 0 because power is 0 (base_power={self.base_power}, erg_mode={self.erg_mode_enabled}, target_power={self.target_power})")
         
         # Check super tuck conditions (using current speed and grade)
         can_super_tuck = self._check_super_tuck_conditions()
