@@ -559,22 +559,39 @@ class VirtualTrainer:
         m = self.rider_weight  # Mass in kg
         
         def equation(v):
-            """Physics equation: power = (aerodynamic + rolling + gravitational) * velocity"""
-            # Ensure velocity is non-negative
+            """Physics equation: power = (aerodynamic + rolling + gravitational) * velocity
+            
+            Note: On descents, fgrav is negative (assisting), so the net force can be negative.
+            This means the rider is accelerating, not at steady state. We solve for the speed
+            where the power output equals the power needed to maintain that speed.
+            """
+            # Ensure velocity is non-negative for calculation
             v = max(0.0, v)
             faero = 0.5 * self.rho * self.cda * (v + wind) ** 2
             froll = self.crr * m * g * math.cos(theta)
             fgrav = m * g * math.sin(theta)
-            return (faero + froll + fgrav) * v - power
+            # Net force: positive = opposing motion, negative = assisting motion
+            net_force = faero + froll + fgrav
+            # Power = force * velocity
+            # If net_force is negative (steep descent), we're accelerating
+            # We solve for where power output equals power needed
+            return net_force * v - power
         
         # Better initial guess based on power and grade
         if power > 0:
             # Rough estimate: higher power or steeper descent = higher speed
-            v_guess = 5.0 + (power / 100.0) - (grade / 10.0)
+            # For descents, we need a higher initial guess
+            if grade < 0:
+                # On descent: estimate based on power and grade
+                # Steeper descent = faster, more power = faster
+                v_guess = max(5.0, abs(grade) * 1.5 + (power / 50.0))
+            else:
+                # Uphill or flat: estimate based on power
+                v_guess = 5.0 + (power / 100.0)
         elif grade < 0:
             # On descent with no power, estimate terminal velocity
             # Rough estimate based on grade (steeper = faster)
-            v_guess = abs(grade) * 2.0  # m/s
+            v_guess = abs(grade) * 3.0  # m/s - higher multiplier for terminal velocity
         else:
             # Uphill or flat with no power = stopped
             v_guess = 0.1
@@ -582,7 +599,32 @@ class VirtualTrainer:
         v_guess = max(0.1, v_guess)  # Ensure positive initial guess
         
         try:
+            # Try to solve for positive velocity
             v_solution = fsolve(equation, v_guess)[0]
+            
+            # If we got a negative solution, it means on this descent the power is too low
+            # to maintain steady state - the rider is accelerating. We need to estimate speed differently.
+            if v_solution < 0:
+                logger.debug(f"Physics model returned negative velocity {v_solution:.2f}m/s for power={power}W, grade={grade}% (accelerating on descent)")
+                # On descent with low power, calculate speed based on power contribution to acceleration
+                # We estimate speed where power contribution + gravity gives reasonable speed
+                if grade < 0 and power > 0:
+                    # On descent: gravity assists, power adds to speed
+                    # Estimate terminal velocity if no power, then add power contribution
+                    # Terminal velocity on descent (no power): roughly proportional to sqrt(abs(grade))
+                    v_terminal_no_power = math.sqrt(abs(grade)) * 8.0  # Rough estimate
+                    # Power adds to speed: more power = faster
+                    v_power_contribution = math.sqrt(power / 20.0)  # Diminishing returns
+                    v_solution = v_terminal_no_power + v_power_contribution
+                    v_solution = max(8.0, v_solution)  # Minimum reasonable speed on descent
+                elif grade < 0:
+                    # Pure descent, no power - terminal velocity
+                    v_solution = math.sqrt(abs(grade)) * 8.0
+                    v_solution = max(5.0, v_solution)
+                else:
+                    # Shouldn't happen on flat/uphill, but fallback
+                    v_solution = max(0.1, power / 100.0)
+            
             # Convert from m/s to km/h
             speed_kmh = v_solution * 3.6
             # Ensure non-negative and reasonable speed (cap at 150 km/h)
