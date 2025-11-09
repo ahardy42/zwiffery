@@ -140,10 +140,10 @@ class VirtualTrainer:
         
         # Fitness Machine Control Point (receives commands from Zwift)
         # Require encryption/bonding for iOS compatibility (if available)
-        try:
-            # Try to use encryption permission for better iOS bonding
-            control_point_perms = GATTAttributePermissions.writeable | getattr(GATTAttributePermissions, 'encrypt_write', 0)
-        except AttributeError:
+        # Try to use encryption permission for better iOS bonding
+        if hasattr(GATTAttributePermissions, 'encrypt_write'):
+            control_point_perms = GATTAttributePermissions.writeable | GATTAttributePermissions.encrypt_write
+        else:
             # Fallback if encrypt_write doesn't exist
             control_point_perms = GATTAttributePermissions.writeable
         await self.server.add_new_characteristic(
@@ -249,10 +249,10 @@ class VirtualTrainer:
         
         # Cycling Power Control Point (write, indicate)
         # Require encryption/bonding for iOS compatibility (if available)
-        try:
-            # Try to use encryption permission for better iOS bonding
-            cycling_control_point_perms = GATTAttributePermissions.writeable | getattr(GATTAttributePermissions, 'encrypt_write', 0)
-        except AttributeError:
+        # Try to use encryption permission for better iOS bonding
+        if hasattr(GATTAttributePermissions, 'encrypt_write'):
+            cycling_control_point_perms = GATTAttributePermissions.writeable | GATTAttributePermissions.encrypt_write
+        else:
             # Fallback if encrypt_write doesn't exist
             cycling_control_point_perms = GATTAttributePermissions.writeable
         await self.server.add_new_characteristic(
