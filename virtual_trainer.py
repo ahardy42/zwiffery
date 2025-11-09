@@ -100,7 +100,7 @@ class VirtualTrainer:
         # Super tuck exit: speed < 38mph OR grade >= -3%
         # This hysteresis prevents rapid toggling
         self.is_super_tuck = False
-        self.super_tuck_speed_threshold = 61.15  # 38 mph in km/h
+        self.super_tuck_speed_threshold = 70.0  # 43.5 mph in km/h
         self.super_tuck_grade_threshold_entry = -8.0  # -8% grade to ENTER super tuck
         self.super_tuck_grade_threshold_exit = -3.0  # -3% grade to EXIT super tuck (less strict)
         self.pre_super_tuck_base_power = 0  # Store power before super tuck to restore later
