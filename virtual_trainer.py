@@ -475,11 +475,14 @@ class VirtualTrainer:
                 grade_raw = struct.unpack('<h', data[3:5])[0]  # percentage * 100
                 crr = struct.unpack('<B', data[5:6])[0]  # rolling resistance * 10000
                 cw = struct.unpack('<B', data[6:7])[0]  # wind resistance * 100
-                # Store grade as percentage (e.g., 4.78 for 4.78%)
-                self.current_grade = grade_raw / 100.0
+                # Store raw grade as percentage (e.g., 4.78 for 4.78%)
+                raw_grade = grade_raw / 100.0
+                # Correct negative grades: Zwift sends negative gradients at ~50% of actual value
+                # So -8% in-game comes as -4% from Zwift - we need to double negative grades
+                self.current_grade = self._correct_grade(raw_grade)
                 # Store wind speed in m/s
                 self.current_wind_speed = wind_speed / 1000.0
-                logger.info(f"Zwift SIM mode - Grade: {self.current_grade}%, Wind: {self.current_wind_speed:.2f}m/s")
+                logger.info(f"Zwift SIM mode - Raw Grade: {raw_grade:.2f}%, Corrected: {self.current_grade:.2f}%, Wind: {self.current_wind_speed:.2f}m/s")
                 # Grade and wind will be used in physics-based speed calculation
                 self._send_control_point_response(opcode, 0x01)
         else:
@@ -510,10 +513,27 @@ class VirtualTrainer:
             except Exception as e:
                 logger.error(f"Error sending control point response: {e}")
     
+    def _correct_grade(self, grade: float) -> float:
+        """Correct grade value from Zwift
+        
+        Zwift sends negative gradients at approximately 50% of the actual value.
+        For example, -8% in-game is sent as -4%. We correct by doubling negative grades.
+        
+        Args:
+            grade: Raw grade percentage from Zwift
+        
+        Returns:
+            Corrected grade percentage
+        """
+        if grade < 0:
+            return grade * 2.0
+        return grade
+    
     def _check_super_tuck_conditions(self) -> bool:
         """Check if super tuck conditions are met
         
         Returns True if speed >= 38mph (61.15 km/h) AND grade <= -6%
+        Note: grade is already corrected when stored, so we use current_grade directly
         """
         speed_ok = self.speed >= self.super_tuck_speed_threshold
         grade_ok = self.current_grade <= self.super_tuck_grade_threshold
