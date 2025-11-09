@@ -290,7 +290,7 @@ class VirtualTrainer:
         def write_handler(characteristic: BlessGATTCharacteristic, value: bytearray):
             """Handle write requests - route to appropriate handler based on characteristic UUID"""
             char_uuid = str(characteristic.uuid).lower().replace('-', '')
-            logger.info(f"Write to characteristic {char_uuid}: {value.hex()}")
+            # logger.info(f"Write to characteristic {char_uuid}: {value.hex()}")
             
             # Normalize UUIDs for comparison (remove dashes, lowercase)
             ftms_cp_uuid = FITNESS_MACHINE_CONTROL_POINT_UUID.lower().replace('-', '')
@@ -431,7 +431,7 @@ class VirtualTrainer:
             return
         
         opcode = data[0]
-        logger.info(f"Control Point OpCode: 0x{opcode:02x}")
+        # logger.info(f"Control Point OpCode: 0x{opcode:02x}")
         
         if opcode == 0x00:  # Request Control
             logger.info("Zwift requested control")
@@ -537,6 +537,7 @@ class VirtualTrainer:
         """
         speed_ok = self.speed >= self.super_tuck_speed_threshold
         grade_ok = self.current_grade <= self.super_tuck_grade_threshold
+        logger.info(f"Super tuck conditions: Speed: {self.speed}, Grade: {self.current_grade}")
         return speed_ok and grade_ok
     
     def _calculate_bike_speed(self, power: float, grade: float, wind: float = None) -> float:
