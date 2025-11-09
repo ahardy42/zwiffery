@@ -139,12 +139,19 @@ class VirtualTrainer:
         )
         
         # Fitness Machine Control Point (receives commands from Zwift)
+        # Require encryption/bonding for iOS compatibility (if available)
+        try:
+            # Try to use encryption permission for better iOS bonding
+            control_point_perms = GATTAttributePermissions.writeable | getattr(GATTAttributePermissions, 'encrypt_write', 0)
+        except AttributeError:
+            # Fallback if encrypt_write doesn't exist
+            control_point_perms = GATTAttributePermissions.writeable
         await self.server.add_new_characteristic(
             FTMS_SERVICE_UUID,
             FITNESS_MACHINE_CONTROL_POINT_UUID,
             GATTCharacteristicProperties.write | GATTCharacteristicProperties.indicate,
             None,
-            GATTAttributePermissions.writeable
+            control_point_perms
         )
         
         # Training Status (read and notify)
@@ -241,12 +248,19 @@ class VirtualTrainer:
         )
         
         # Cycling Power Control Point (write, indicate)
+        # Require encryption/bonding for iOS compatibility (if available)
+        try:
+            # Try to use encryption permission for better iOS bonding
+            cycling_control_point_perms = GATTAttributePermissions.writeable | getattr(GATTAttributePermissions, 'encrypt_write', 0)
+        except AttributeError:
+            # Fallback if encrypt_write doesn't exist
+            cycling_control_point_perms = GATTAttributePermissions.writeable
         await self.server.add_new_characteristic(
             CYCLING_POWER_SERVICE_UUID,
             CYCLING_POWER_CONTROL_POINT_UUID,
             GATTCharacteristicProperties.write | GATTCharacteristicProperties.indicate,
             None,
-            GATTAttributePermissions.writeable
+            cycling_control_point_perms
         )
         
         # Sensor Location (read)
@@ -632,6 +646,7 @@ class VirtualTrainer:
         logger.info(f"Starting BLE advertising as '{self.name}'")
         await self.server.start()
         logger.info("✓ BLE advertising started - Zwift should now see the trainer")
+        logger.info("📱 For iOS: Pair through Zwift app (not iPhone Settings) for better connection persistence")
     
     async def update_loop(self):
         """Main loop to update and broadcast trainer data"""

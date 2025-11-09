@@ -215,6 +215,47 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+### iOS Connection Issues (Pairing/Disconnection)
+
+If you're using an iPhone with Zwift and experiencing repeated pairing requests or disconnections:
+
+1. **Pair through Zwift app, not iPhone Settings:**
+   - Always pair the trainer through the Zwift app's pairing screen
+   - Do NOT pair it through iPhone Settings > Bluetooth
+   - This prevents connection conflicts
+
+2. **Disable Wi-Fi Assist on iPhone:**
+   - Go to Settings > Cellular
+   - Scroll down and toggle off "Wi-Fi Assist"
+   - This feature can disrupt BLE connections
+
+3. **Keep devices close:**
+   - Ensure iPhone and trainer are within 3-5 feet
+   - Avoid physical obstructions between devices
+
+4. **Reduce interference:**
+   - Turn off other nearby Bluetooth devices
+   - Reduce Wi-Fi router proximity if possible
+
+5. **Configure BlueZ for better bonding (Linux/Raspberry Pi):**
+   ```bash
+   # Edit BlueZ main configuration
+   sudo nano /etc/bluetooth/main.conf
+   
+   # Add or modify these settings:
+   [Policy]
+   AutoEnable=true
+   JustWorksRepairing=always
+   
+   # Restart Bluetooth service
+   sudo systemctl restart bluetooth
+   ```
+
+6. **If disconnections persist:**
+   - Restart both iPhone and the trainer device
+   - Unpair the trainer from Zwift, restart trainer, then re-pair
+   - Check for iOS and Zwift app updates
+
 ### Bless Library Issues
 
 If Bless doesn't work on your system, try the alternative using Bluezero:
