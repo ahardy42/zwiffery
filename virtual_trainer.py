@@ -501,7 +501,7 @@ class VirtualTrainer:
         
         # Calculate grade multiplier: 1 + (2 * grade / 100)
         # Example: 10% grade → 1.2x, -10% grade → 0.8x
-        grade_multiplier = 1.0 + (2.0 * self.current_grade / 100.0)
+        grade_multiplier = 1.0 + (4.0 * self.current_grade / 100.0)
         
         if self.erg_mode_enabled and self.target_power > 0:
             # In ERG mode, gradually approach target power
