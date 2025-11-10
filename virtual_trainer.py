@@ -442,6 +442,9 @@ class VirtualTrainer:
             
         elif opcode == 0x01:  # Reset
             logger.info("Zwift requested reset")
+            # Disable ERG mode on reset
+            self.erg_mode_enabled = False
+            self.target_power = 0
             self.power = self.base_power
             self.cadence = self.base_cadence
             self._send_control_point_response(opcode, 0x01)
@@ -458,7 +461,15 @@ class VirtualTrainer:
                 target_power = struct.unpack('<h', data[1:3])[0]
                 self.target_power = target_power
                 self.erg_mode_enabled = True
-                logger.info(f"Zwift set target power (ERG mode): {target_power}W")
+                # Immediately override current power with target power (ERG mode takes precedence)
+                if target_power > 0:
+                    self.power = target_power
+                    # Clear base_power so it doesn't interfere with ERG mode
+                    self.base_power = 0
+                else:
+                    # Target power is 0, set power to 0
+                    self.power = 0
+                logger.info(f"Zwift set target power (ERG mode): {target_power}W (overriding current power)")
                 self._send_control_point_response(opcode, 0x01)
                 
         elif opcode == 0x07:  # Start or Resume
@@ -678,21 +689,32 @@ class VirtualTrainer:
         grade_multiplier = 1.0 + (4.0 * self.current_grade / 100.0)
         
         if self.erg_mode_enabled and self.target_power > 0:
-            # In ERG mode, gradually approach target power
-            # Apply grade multiplier to target power
-            effective_target_power = self.target_power * grade_multiplier
-            power_diff = effective_target_power - self.power
-            self.power += power_diff * 0.1  # Gradual approach
-            # Use percentage-based variance in ERG mode too
-            if effective_target_power > 0:
-                variance_amount = effective_target_power * self.power_variance_percent
-                self.power += random.uniform(-variance_amount, variance_amount)
+            # In ERG mode: no gradient effect, 3% variance, no super tucks, no coasting
+            # Use target power directly (no grade multiplier, no base_power influence)
+            # Power is set immediately when target is received, so we just maintain it with variance
+            base_erg_power = self.target_power
+            # Apply 3% variance in ERG mode
+            variance_amount = base_erg_power * 0.03  # 3% variance
+            self.power = base_erg_power + random.uniform(-variance_amount, variance_amount)
+            # Ensure power never goes to 0 in ERG mode (unless target is 0)
             self.power = max(0, min(2000, self.power))
+            if self.target_power > 0 and self.power < 1:
+                self.power = 1  # Minimum 1W to prevent coasting
             
             # Cadence adjusts naturally with power in ERG mode
             self.cadence = self.base_cadence + random.uniform(-self.cadence_variation, self.cadence_variation)
+            
+            # Exit super tuck if we're in it when ERG mode is active
+            if self.is_super_tuck:
+                self.is_super_tuck = False
+                logger.info(f"🚴 Super tuck disabled in ERG mode. Restoring power.")
         else:
             # Normal mode - apply grade multiplier to base power, then add variance
+            # If ERG mode is enabled but target_power is 0, exit super tuck
+            if self.erg_mode_enabled and self.is_super_tuck:
+                self.is_super_tuck = False
+                logger.info(f"🚴 Super tuck disabled in ERG mode (target power is 0).")
+            
             if self.base_power > 0:
                 # Apply grade multiplier: base_power * (1 + 4 * grade / 100)
                 effective_base_power = self.base_power * grade_multiplier
@@ -725,40 +747,42 @@ class VirtualTrainer:
                 logger.info(f"Speed is 0 because power is 0 (base_power={self.base_power}, erg_mode={self.erg_mode_enabled}, target_power={self.target_power})")
         
         # Check super tuck conditions with hysteresis (different thresholds for entry vs exit)
-        if self.is_super_tuck:
-            # Already in super tuck - check if we should exit
-            should_exit = self._check_should_exit_super_tuck()
-            if should_exit:
-                # Exiting super tuck - restore base power
-                self.base_power = self.pre_super_tuck_base_power
-                logger.info(f"🚴 Super tuck disengaged. Speed: {self.speed:.1f} km/h, Grade: {self.current_grade:.1f}%")
-                self.is_super_tuck = False
+        # Skip super tuck checks in ERG mode (no super tucks allowed)
+        if not self.erg_mode_enabled:
+            if self.is_super_tuck:
+                # Already in super tuck - check if we should exit
+                should_exit = self._check_should_exit_super_tuck()
+                if should_exit:
+                    # Exiting super tuck - restore base power
+                    self.base_power = self.pre_super_tuck_base_power
+                    logger.info(f"🚴 Super tuck disengaged. Speed: {self.speed:.1f} km/h, Grade: {self.current_grade:.1f}%")
+                    self.is_super_tuck = False
+                else:
+                    # Maintain super tuck - set power and cadence to 0
+                    self.power = 0
+                    self.cadence = 0
+                    
+                    # During super tuck, calculate speed with power=0 using physics model
+                    # This simulates coasting down a descent - speed will increase on negative grades
+                    self.speed = self._calculate_bike_speed(0.0, self.current_grade, self.current_wind_speed)
+                    self.super_tuck_speed = self.speed  # Update stored speed
             else:
-                # Maintain super tuck - set power and cadence to 0
-                self.power = 0
-                self.cadence = 0
-                
-                # During super tuck, calculate speed with power=0 using physics model
-                # This simulates coasting down a descent - speed will increase on negative grades
-                self.speed = self._calculate_bike_speed(0.0, self.current_grade, self.current_wind_speed)
-                self.super_tuck_speed = self.speed  # Update stored speed
-        else:
-            # Not in super tuck - check if we can enter
-            can_enter = self._check_can_enter_super_tuck()
-            if can_enter:
-                # Entering super tuck - save current base power and speed
-                self.pre_super_tuck_base_power = self.base_power
-                self.super_tuck_speed = self.speed
-                logger.info(f"🏎️  Super tuck engaged! Speed: {self.speed:.1f} km/h, Grade: {self.current_grade:.1f}%")
-                self.is_super_tuck = True
-                # Set power and cadence to 0 during super tuck
-                self.power = 0
-                self.cadence = 0
-                
-                # During super tuck, calculate speed with power=0 using physics model
-                # This simulates coasting down a descent - speed will increase on negative grades
-                self.speed = self._calculate_bike_speed(0.0, self.current_grade, self.current_wind_speed)
-                self.super_tuck_speed = self.speed  # Update stored speed
+                # Not in super tuck - check if we can enter
+                can_enter = self._check_can_enter_super_tuck()
+                if can_enter:
+                    # Entering super tuck - save current base power and speed
+                    self.pre_super_tuck_base_power = self.base_power
+                    self.super_tuck_speed = self.speed
+                    logger.info(f"🏎️  Super tuck engaged! Speed: {self.speed:.1f} km/h, Grade: {self.current_grade:.1f}%")
+                    self.is_super_tuck = True
+                    # Set power and cadence to 0 during super tuck
+                    self.power = 0
+                    self.cadence = 0
+                    
+                    # During super tuck, calculate speed with power=0 using physics model
+                    # This simulates coasting down a descent - speed will increase on negative grades
+                    self.speed = self._calculate_bike_speed(0.0, self.current_grade, self.current_wind_speed)
+                    self.super_tuck_speed = self.speed  # Update stored speed
     
     
     def start_power(self):
