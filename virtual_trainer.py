@@ -484,6 +484,11 @@ class VirtualTrainer:
             
         elif opcode == 0x11:  # Set Indoor Bike Simulation Parameters
             # This is sent during SIM mode (slope simulation)
+            # SIM mode disables ERG mode - trainer should respond to manual "u" commands
+            if self.erg_mode_enabled:
+                logger.info("SIM mode started - disabling ERG mode (trainer will respond to 'u' commands)")
+                self.erg_mode_enabled = False
+                self.target_power = 0
             if len(data) >= 7:
                 wind_speed = struct.unpack('<h', data[1:3])[0]  # m/s * 1000
                 grade_raw = struct.unpack('<h', data[3:5])[0]  # percentage * 100
@@ -821,6 +826,12 @@ class VirtualTrainer:
                 logger.info(f"📊 Variance level set to '{variance_level_lower}' ({self.power_variance_percent*100:.0f}%)")
             else:
                 logger.warning(f"⚠️  Unknown variance level '{variance_level}'. Use 'chill', 'focused', or 'standard'")
+        
+        # Disable ERG mode when manually setting power (manual commands take precedence)
+        if self.erg_mode_enabled:
+            logger.info("Manual power update - disabling ERG mode")
+            self.erg_mode_enabled = False
+            self.target_power = 0
         
         # Clear stopped state and update power - this enables variations
         self.is_stopped = False
