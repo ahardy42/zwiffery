@@ -74,7 +74,7 @@ class VirtualTrainer:
         self.VARIANCE_LEVELS = {
             'chill': 0.50,      # 15% variance
             'focused': 0.10,    # 5% variance
-            'standard': 0.25     # 10% variance (default)
+            'standard': 0.25,   # 10% variance (default)
             'exact': 0.00        # 0% variance
         }
         self.power_variance_level = 'standard'  # Default variance level
