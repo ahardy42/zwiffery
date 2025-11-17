@@ -714,6 +714,13 @@ class VirtualTrainer:
             if self.is_super_tuck:
                 self.is_super_tuck = False
                 logger.info(f"🚴 Super tuck disabled in ERG mode. Restoring power.")
+        elif self.power_variance_level == 'exact':
+            # Exact mode - no variance, just use the target power and calculate speed
+            self.power = self.target_power
+            self.cadence = self.base_cadence
+            self.speed = self._calculate_bike_speed(self.power, self.current_grade, self.current_wind_speed)
+            self.is_super_tuck = False
+            logger.info(f"🚴 Exact mode - power: {self.power:.1f}W, cadence: {self.cadence:.1f}rpm, speed: {self.speed:.1f}km/h")
         else:
             # Normal mode - apply grade multiplier to base power, then add variance
             # If ERG mode is enabled but target_power is 0, exit super tuck
