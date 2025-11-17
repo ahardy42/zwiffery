@@ -714,7 +714,7 @@ class VirtualTrainer:
             if self.is_super_tuck:
                 self.is_super_tuck = False
                 logger.info(f"🚴 Super tuck disabled in ERG mode. Restoring power.")
-        elif self.power_variance_level == 'exact'
+        elif self.power_variance_level == 'exact':
             # Exact mode - no variance, just use the base power
             self.power = self.base_power
             self.cadence = self.base_cadence
