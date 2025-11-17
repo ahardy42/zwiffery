@@ -75,6 +75,7 @@ class VirtualTrainer:
             'chill': 0.50,      # 15% variance
             'focused': 0.10,    # 5% variance
             'standard': 0.25     # 10% variance (default)
+            'exact': 0.00        # 0% variance
         }
         self.power_variance_level = 'standard'  # Default variance level
         self.power_variance_percent = self.VARIANCE_LEVELS['standard']
@@ -825,7 +826,7 @@ class VirtualTrainer:
                 self.power_variance_percent = self.VARIANCE_LEVELS[variance_level_lower]
                 logger.info(f"📊 Variance level set to '{variance_level_lower}' ({self.power_variance_percent*100:.0f}%)")
             else:
-                logger.warning(f"⚠️  Unknown variance level '{variance_level}'. Use 'chill', 'focused', or 'standard'")
+                logger.warning(f"⚠️  Unknown variance level '{variance_level}'. Use 'chill', 'focused', 'standard', or 'exact'")
         
         # Disable ERG mode when manually setting power (manual commands take precedence)
         if self.erg_mode_enabled:
